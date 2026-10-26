@@ -1,0 +1,37 @@
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: wms
+      POSTGRES_USER: wms
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set password}
+    volumes: [pgdata:/var/lib/postgresql/data]
+    healthcheck:
+      test: ["CMD-SHELL","pg_isready -U wms -d wms"]
+      interval: 5s
+      retries: 20
+  migrate:
+    build: {context: ., target: api}
+    environment:
+      DATABASE_URL: postgres://wms:${POSTGRES_PASSWORD}@db:5432/wms
+    command: ["sh","-c","cd api && ../node_modules/.bin/typeorm-ts-node-commonjs -d src/data-source.ts migration:run"]
+    depends_on: {db: {condition: service_healthy}}
+    restart: "no"
+  api:
+    build: {context: ., target: api}
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgres://wms:${POSTGRES_PASSWORD}@db:5432/wms
+      JWT_SECRET: ${JWT_SECRET:?set jwt secret}
+      ADMIN_USERNAME: ${ADMIN_USERNAME:-admin}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:?set admin password}
+      CORS_ORIGIN: ${CORS_ORIGIN:-http://localhost}
+    depends_on: {migrate: {condition: service_completed_successfully}}
+  web:
+    build: {context: ., target: web}
+    restart: unless-stopped
+    ports: ["${WEB_PORT:-8080}:80"]
+    depends_on: [api]
+volumes:
+  pgdata:
